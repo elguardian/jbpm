@@ -272,25 +272,50 @@ public class ProcessHandler extends BaseAbstractHandler implements Handler {
 	     return findNodeByIdOrUniqueIdInMetadata(nodeContainer, nodeRef, errorMsg);
      } 
 	 
-	 private static Node findNodeByIdOrUniqueIdInMetadata(
+    private static Node findNodeByIdOrUniqueIdInMetadata(
 	         NodeContainer nodeContainer, String targetRef) {
-	     return findNodeByIdOrUniqueIdInMetadata(nodeContainer, targetRef, "Could not find target node for connection:" + targetRef);
+        return findNodeByIdOrUniqueIdInMetadata(nodeContainer, targetRef, "Could not find target node for connection:" + targetRef).get(0);
 	 }
 
-	 private static Node findNodeByIdOrUniqueIdInMetadata(NodeContainer nodeContainer, final String nodeRef, String errorMsg) { 
-	     Node node = null;
-	     // try looking for a node with same "UniqueId" (in metadata)
-	     for (Node containerNode: nodeContainer.getNodes()) {
-	         if (nodeRef.equals(containerNode.getMetaData().get("UniqueId"))) {
-	             node = containerNode;
-	             break;
-	         }
-	     }
-	     if (node == null) {
-	         throw new IllegalArgumentException(errorMsg);
-	     }
-	     return node;
-	 }
+    private static Node findSingleNodeByIdOrUniqueIdInMetadata(NodeContainer nodeContainer, final String nodeRef, String errorMsg) {
+        Node node = null;
+        // try looking for a node with same "UniqueId" (in metadata)
+        for (Node containerNode : nodeContainer.getNodes()) {
+            if (nodeRef.equals(containerNode.getMetaData().get("UniqueId"))) {
+                node = containerNode;
+                break;
+            }
+        }
+        if (node == null) {
+            throw new IllegalArgumentException(errorMsg);
+        }
+        return node;
+    }
+
+    private static List<Node> findNodeByIdOrUniqueIdInMetadata(NodeContainer nodeContainer, final String nodeRef, String errorMsg) {
+        return findNodeByIdOrUniqueIdInMetadata(nodeContainer, nodeRef, errorMsg, true);
+    }
+
+    private static List<Node> findNodeByIdOrUniqueIdInMetadata(NodeContainer nodeContainer, final String nodeRef, String errorMsg, boolean first) {
+        List<Node> node = new ArrayList<>();
+        // try looking for a node with same "UniqueId" (in metadata)
+        for (Node containerNode : nodeContainer.getNodes()) {
+            String currentNodeRef = (String) containerNode.getMetaData().get("UniqueId");
+            int idx = currentNodeRef.indexOf(':');
+            currentNodeRef = (idx < 0) ? currentNodeRef : currentNodeRef.substring(0, idx);
+            if (nodeRef.equals(currentNodeRef)) {
+                node.add(containerNode);
+                if (containerNode instanceof org.jbpm.workflow.core.NodeContainer) {
+                    node.addAll(findNodeByIdOrUniqueIdInMetadata((NodeContainer) containerNode, nodeRef, errorMsg, false));
+                }
+                break;
+            }
+        }
+        if (node.isEmpty() && first) {
+            throw new IllegalArgumentException(errorMsg);
+        }
+        return node;
+    }
 
 	 public Class<?> generateNodeFor() {
 		return RuleFlowProcess.class;
@@ -300,7 +325,7 @@ public class ProcessHandler extends BaseAbstractHandler implements Handler {
 		if (connections != null) {
 			for (SequenceFlow connection: connections) {
 				String sourceRef = connection.getSourceRef();
-                Node source = findNodeByIdOrUniqueIdInMetadata(nodeContainer, sourceRef, "Could not find source node for connection:" + sourceRef);
+                Node source = findSingleNodeByIdOrUniqueIdInMetadata(nodeContainer, sourceRef, "Could not find source node for connection:" + sourceRef);
                 
                 if (source instanceof EventNode) {
                     for (EventFilter eventFilter : ((EventNode) source).getEventFilters()) {
@@ -316,7 +341,7 @@ public class ProcessHandler extends BaseAbstractHandler implements Handler {
                 }
                 
                 String targetRef = connection.getTargetRef();
-                Node target = findNodeByIdOrUniqueIdInMetadata(nodeContainer, targetRef, "Could not find target node for connection:" + targetRef);
+                Node target = findSingleNodeByIdOrUniqueIdInMetadata(nodeContainer, targetRef, "Could not find target node for connection:" + targetRef);
 
 				
 				Connection result = new ConnectionImpl(
@@ -352,26 +377,29 @@ public class ProcessHandler extends BaseAbstractHandler implements Handler {
                 if (attachedTo != null) {
                     for( EventFilter filter : ((EventNode) node).getEventFilters() ) {
                         String type = ((EventTypeFilter) filter).getType();
-                        Node attachedNode = findNodeByIdOrUniqueIdInMetadata(nodeContainer, attachedTo, "Could not find node to attach to: " + attachedTo);
+                        List<Node> attachedNodes = findNodeByIdOrUniqueIdInMetadata(nodeContainer, attachedTo, "Could not find node to attach to: " + attachedTo);
 
-                        // 
-                        if (!(attachedNode instanceof StateBasedNode) && !type.equals("Compensation")) {
-                            throw new IllegalArgumentException("Boundary events are supported only on StateBasedNode, found node: " 
-                                    + attachedNode.getClass().getName() + " [" + attachedNode.getMetaData().get("UniqueId") + "]");
-                        }
+                        for (Node attachedNode : attachedNodes) {
+                            if (!(attachedNode instanceof StateBasedNode) && !type.equals("Compensation")) {
+                                throw new IllegalArgumentException("Boundary events are supported only on StateBasedNode, found node: " + attachedNode.getClass().getName() + " [" + attachedNode.getMetaData().get(
+                                                                                                                                                                                                                    "UniqueId") +
+                                                                   "]");
+                            }
 
-                        if (type.startsWith("Escalation")) {
-                            linkBoundaryEscalationEvent(nodeContainer, node, attachedTo, attachedNode);
-                        } else if (type.startsWith("Error-")) {
-                            linkBoundaryErrorEvent(nodeContainer, node, attachedTo, attachedNode);
-                        } else if (type.startsWith("Timer-")) {
-                            linkBoundaryTimerEvent(nodeContainer, node, attachedTo, attachedNode);
-                        } else if (type.equals("Compensation")) {
-                            linkBoundaryCompensationEvent(nodeContainer, node, attachedTo, attachedNode);
-                        } else if (node.getMetaData().get("SignalName") != null || type.startsWith("Message-")) {
-                            linkBoundarySignalEvent(nodeContainer, node, attachedTo, attachedNode);
-                        } else if (type.startsWith("Condition-")) {
-                            linkBoundaryConditionEvent(nodeContainer, node, attachedTo, attachedNode);
+                            String uniqueId = (String) attachedNode.getMetaData().get("UniqueId");
+                            if (type.startsWith("Escalation")) {
+                                linkBoundaryEscalationEvent(nodeContainer, node, uniqueId, attachedNode);
+                            } else if (type.startsWith("Error-")) {
+                                linkBoundaryErrorEvent(nodeContainer, node, uniqueId, attachedNode);
+                            } else if (type.startsWith("Timer-")) {
+                                linkBoundaryTimerEvent(nodeContainer, node, uniqueId, attachedNode);
+                            } else if (type.equals("Compensation")) {
+                                linkBoundaryCompensationEvent(nodeContainer, node, uniqueId, attachedNode);
+                            } else if (node.getMetaData().get("SignalName") != null || type.startsWith("Message-")) {
+                                linkBoundarySignalEvent(nodeContainer, node, uniqueId, attachedNode);
+                            } else if (type.startsWith("Condition-")) {
+                                linkBoundaryConditionEvent(nodeContainer, node, uniqueId, attachedNode);
+                            }
                         }
                     }
                 }

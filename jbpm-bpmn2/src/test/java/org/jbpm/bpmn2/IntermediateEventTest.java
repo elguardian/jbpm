@@ -2097,8 +2097,8 @@ public class IntermediateEventTest extends JbpmBpmn2TestCase {
 
     }
 
-    @Test(timeout=10000)
-    public void testTimerMultipleInstances() throws Exception {
+    @Test()
+    public void testTimerMultipleHumanTaskInstances() throws Exception {
         NodeLeftCountDownProcessEventListener countDownListener = new NodeLeftCountDownProcessEventListener("timer", 3);
         KieBase kbase = createKnowledgeBase("BPMN2-MultiInstanceLoopBoundaryTimer.bpmn2");
 
@@ -2120,6 +2120,29 @@ public class IntermediateEventTest extends JbpmBpmn2TestCase {
             ksession.getWorkItemManager().completeWorkItem(wi.getId(), null);
         }
 
+        assertProcessInstanceFinished(processInstance, ksession);
+    }
+
+    @Test
+    public void testTimerMultipleInstances() throws Exception {
+        NodeLeftCountDownProcessEventListener countDownListener = new NodeLeftCountDownProcessEventListener("Offer Prep", 3);
+        KieBase kbase = createKnowledgeBase("BPMN2-MultiInstanceLoopHumanTaskWithBoundaryTimer.bpmn2");
+
+        ksession = createKnowledgeSession(kbase);
+        ksession.addEventListener(countDownListener);
+        TestWorkItemHandler handler = new TestWorkItemHandler();
+
+        ksession.getWorkItemManager().registerWorkItemHandler("Human Task", handler);
+        ProcessInstance processInstance = ksession.startProcess("simple.parallel");
+        assertProcessInstanceActive(processInstance);
+
+        countDownListener.waitTillCompleted();
+
+        List<WorkItem> workItems = handler.getWorkItems();
+        assertThat(workItems).isNotNull();
+        assertThat(workItems.size()).isEqualTo(3);
+
+        Thread.sleep(1000000);
         assertProcessInstanceFinished(processInstance, ksession);
     }
 
