@@ -16,6 +16,7 @@
 
 package org.jbpm.executor.impl.concurrent;
 
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionHandler;
@@ -46,20 +47,20 @@ public class PrioritisedScheduledThreadPoolExecutor extends ScheduledThreadPoolE
 
     
     public boolean scheduleNoDuplicates(Runnable command, long delay, TimeUnit unit) {
+        Long requestId = null;
+        Date fireDate = null;
         if (command instanceof PrioritisedRunnable) {
-            Long requestId = ((PrioritisedRunnable) command).getId();
+            requestId = ((PrioritisedRunnable) command).getId();
+            fireDate = ((PrioritisedRunnable) command).getFireDate();
             ScheduledFuture<?> alreadyScheduled = scheduled.get(requestId);
             logger.debug("Checking if request with id {} is already scheduled {}", requestId, alreadyScheduled);
             if (alreadyScheduled != null) {
-                if (alreadyScheduled.isDone()) {
-                    logger.debug("Request {} is already completed so remove it and reschedule", requestId);
-                    scheduled.remove(requestId);                    
-                } else {
-                    logger.debug("Request {} is already scheduled", requestId);
-                    return false;
-                }
+                // we need to wait till done is being called by the job executor
+                logger.debug("Request {} is already scheduled", requestId);
+                return false;
             }
         }
+        logger.debug("Schedule request {} with fireDate {} is already scheduled at {}", requestId, fireDate, delay);
         super.schedule(command, delay, unit);
         return true;
     }

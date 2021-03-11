@@ -183,7 +183,7 @@ public abstract class AbstractAvailableJobsExecutor {
                         
                         handler.onCommandDone(ctx, results);
                     }
-                    
+                    ((ExecutorImpl) executor).clearExecution(request.getId());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (Throwable e) {
@@ -191,11 +191,9 @@ public abstract class AbstractAvailableJobsExecutor {
                     if (callbacks == null) {
                         callbacks = classCacheManager.buildCommandCallback(ctx, cl);
                     }
-                    
-                	processReoccurring = handleException(request, e, ctx, callbacks);
-                	
+
+                    processReoccurring = handleException(request, e, ctx, callbacks);
                 } finally {
-                    ((ExecutorImpl) executor).clearExecution(request.getId());
                     AsyncExecutionMarker.reset();
                 	handleCompletion(processReoccurring, cmd, ctx);
                 	eventSupport.fireAfterJobExecuted(request, exception);
@@ -273,6 +271,8 @@ public abstract class AbstractAvailableJobsExecutor {
                     handler.onCommandError(ctx, wrappedException);                        
                 }
             }
+            // only when there are no retries left we clean up
+            ((ExecutorImpl) executor).clearExecution(request.getId());
             return true;
         }
     }
